@@ -1,288 +1,171 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WynnFinder Pro | Database Engine</title>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&family=JetBrains+Mono:wght@400;700&display=swap');
-        
-        :root {
-            --bg-deep: #05070a;
-            --surface: #0f1218;
-            --border: #1e2530;
-            --accent: #3b82f6;
+import React, { useState, useEffect, useMemo } from 'react';
+import { Search, MapPin, Database, AlertCircle, Loader2 } from 'lucide-react';
+
+const App = () => {
+  const [items, setItems] = useState([]);
+  const [mergedDrops, setMergedDrops] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [debug, setDebug] = useState({ api: 'Pending', drops: 'Pending', htoi: 'Pending' });
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({ tier: "All", hasLoc: false });
+
+  useEffect(() => {
+    const load = async () => {
+      let apiItems = [];
+      let allDrops = {};
+      let dLog = { api: 'Error', drops: 'Missing', htoi: 'Missing' };
+
+      // 1. API LOAD
+      try {
+        const res = await fetch("https://api.wynncraft.com/v3/item/database?fullResult");
+        const data = await res.json();
+        // Handle different possible API response shapes
+        const raw = data.items || data;
+        apiItems = Object.entries(raw).map(([name, stats]) => ({
+          name: stats.name || name,
+          ...stats
+        }));
+        dLog.api = `OK (${apiItems.length})`;
+      } catch (e) { dLog.api = "Failed to reach Wynn API"; }
+
+      // 2. DROPS.JSON LOAD
+      try {
+        const res = await fetch("./drops.json");
+        if (res.ok) {
+          const json = await res.json();
+          allDrops = { ...json };
+          dLog.drops = `OK (${Object.keys(json).length})`;
         }
+      } catch (e) { dLog.drops = "Syntax Error in drops.json"; }
 
-        body { 
-            background-color: var(--bg-deep); 
-            color: #e2e8f0; 
-            font-family: 'Space Grotesk', sans-serif;
-            margin: 0;
+      // 3. HTOI.JSON LOAD (New Array Format)
+      try {
+        const res = await fetch("./htoi.json");
+        if (res.ok) {
+          const arr = await res.json();
+          arr.forEach(entry => {
+            if (entry.name && entry.drops) {
+              allDrops[entry.name] = [...(allDrops[entry.name] || []), ...entry.drops];
+            }
+          });
+          dLog.htoi = `OK (${arr.length})`;
         }
+      } catch (e) { dLog.htoi = "Syntax Error in htoi.json"; }
 
-        .item-card { 
-            background-color: var(--surface);
-            border: 1px solid var(--border);
-            transition: all 0.15s ease-out;
-        }
+      setItems(apiItems);
+      setMergedDrops(allDrops);
+      setDebug(dLog);
+      setLoading(false);
+    };
+    load();
+  }, []);
 
-        .item-card:hover {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 1px var(--accent);
-        }
+  const filtered = useMemo(() => {
+    return items.filter(i => {
+      const sMatch = i.name.toLowerCase().includes(search.toLowerCase());
+      const tMatch = filters.tier === "All" || i.tier === filters.tier;
+      const lMatch = !filters.hasLoc || (mergedDrops[i.name]?.length > 0);
+      return sMatch && tMatch && lMatch;
+    });
+  }, [items, mergedDrops, search, filters]);
 
-        .filter-btn {
-            background-color: #161b22;
-            border: 1px solid #30363d;
-            transition: all 0.1s;
-        }
+  if (loading) return (
+    <div className="min-h-screen bg-[#05070a] flex flex-col items-center justify-center gap-4">
+      <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
+      <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Accessing Data Protocol</p>
+    </div>
+  );
 
-        .filter-btn.active {
-            background-color: var(--accent);
-            border-color: var(--accent);
-            color: white;
-        }
+  return (
+    <div className="min-h-screen bg-[#05070a] text-slate-200 font-sans selection:bg-blue-500/30">
+      {/* STATUS HEADER */}
+      <div className="bg-[#0f1218] border-b border-[#1e2530] px-6 py-2 flex gap-6 text-[9px] font-black uppercase tracking-tighter overflow-x-auto">
+          <div className="flex items-center gap-2 whitespace-nowrap"><div className={`w-1.5 h-1.5 rounded-full ${debug.api.includes('OK') ? 'bg-emerald-500' : 'bg-red-500'}`}></div> API: {debug.api}</div>
+          <div className="flex items-center gap-2 whitespace-nowrap"><div className={`w-1.5 h-1.5 rounded-full ${debug.drops.includes('OK') ? 'bg-emerald-500' : 'bg-red-500'}`}></div> DROPS: {debug.drops}</div>
+          <div className="flex items-center gap-2 whitespace-nowrap"><div className={`w-1.5 h-1.5 rounded-full ${debug.htoi.includes('OK') ? 'bg-emerald-500' : 'bg-red-500'}`}></div> HTOI: {debug.htoi}</div>
+      </div>
 
-        .mono { font-family: 'JetBrains Mono', monospace; }
-        
-        .custom-select {
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 0.75rem center;
-            background-size: 1rem;
-        }
+      <nav className="sticky top-0 z-50 bg-[#0f1218]/95 backdrop-blur-md border-b border-[#1e2530] px-6 py-5">
+        <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center gap-6">
+          <div className="flex items-center gap-3 min-w-fit">
+            <div className="w-9 h-9 bg-blue-600 rounded flex items-center justify-center"><Database className="text-white w-5 h-5" /></div>
+            <h1 className="text-lg font-black tracking-tighter italic">WYNN<span className="text-blue-500">TITLES</span></h1>
+          </div>
 
-        /* Tier Specific Glows */
-        .tier-Mythic { border-left: 4px solid #a855f7 !important; }
-        .tier-Fabled { border-left: 4px solid #ef4444 !important; }
-        .tier-Legendary { border-left: 4px solid #3b82f6 !important; }
-        .tier-Rare { border-left: 4px solid #ec4899 !important; }
-        .tier-Unique { border-left: 4px solid #eab308 !important; }
+          <div className="flex-1 w-full flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
+              <input 
+                className="w-full bg-[#05070a] border border-[#1e2530] rounded-lg py-3 pl-11 pr-4 outline-none focus:border-blue-500 transition-colors text-sm"
+                placeholder="Search database..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <select 
+              className="bg-[#05070a] border border-[#1e2530] rounded-lg px-4 py-3 text-xs font-bold outline-none cursor-pointer hover:border-slate-700"
+              onChange={e => setFilters({...filters, tier: e.target.value})}
+            >
+              <option value="All">All Tiers</option>
+              {["Mythic", "Fabled", "Legendary", "Rare", "Unique"].map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <button 
+              onClick={() => setFilters({...filters, hasLoc: !filters.hasLoc})}
+              className={`px-5 rounded-lg text-xs font-black uppercase transition-all ${filters.hasLoc ? 'bg-blue-600 text-white' : 'bg-[#1e2530] text-slate-500'}`}
+            >
+              <MapPin className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </nav>
 
-        .loader {
-            border: 2px solid #1e2530;
-            border-top: 2px solid var(--accent);
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    </style>
-</head>
-<body>
-    <div id="root"></div>
+      <main className="max-w-[1400px] mx-auto p-6 md:p-10">
+        <div className="mb-8 flex justify-between items-center opacity-40">
+          <span className="text-[10px] font-black uppercase tracking-[0.2em]">{filtered.length} REGISTRY MATCHES</span>
+        </div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
-
-        const App = () => {
-            const [items, setItems] = useState([]);
-            const [mergedDrops, setMergedDrops] = useState({});
-            const [loading, setLoading] = useState(true);
-            const [search, setSearch] = useState("");
-            const [filters, setFilters] = useState({ tier: "All", type: "All", hasLoc: false });
-
-            useEffect(() => {
-                const initData = async () => {
-                    try {
-                        const [apiRes, dropsRes, htoiRes] = await Promise.all([
-                            fetch("https://api.wynncraft.com/v3/item/database?fullResult"),
-                            fetch("./drops.json").catch(() => null),
-                            fetch("./htoi.json").catch(() => null)
-                        ]);
-
-                        const apiData = await apiRes.json();
-                        const dropsJson = dropsRes ? await dropsRes.json() : {};
-                        const htoiArray = htoiRes ? await htoiRes.json() : [];
-
-                        const itemArray = Object.entries(apiData).map(([name, stats]) => ({
-                            name,
-                            ...stats
-                        }));
-
-                        const processedHtoi = {};
-                        const cats = ['bossaltar', 'merchant', 'dungeonmerchant', 'quest', 'specialdrop', 'discovery', 'legendaryisland', 'hive', 'raid'];
-                        
-                        htoiArray.forEach(entry => {
-                            const name = entry.name;
-                            const dps = [];
-                            cats.forEach(cat => {
-                                if (entry[cat] && entry[cat] !== "NULL") {
-                                    try {
-                                        const parsed = typeof entry[cat] === 'string' ? JSON.parse(entry[cat]) : entry[cat];
-                                        (Array.isArray(parsed) ? parsed : [parsed]).forEach(d => dps.push({ ...d, type: cat }));
-                                    } catch (e) {}
-                                }
-                            });
-                            if (dps.length > 0) processedHtoi[name] = dps;
-                        });
-
-                        const combined = { ...dropsJson };
-                        Object.keys(processedHtoi).forEach(n => {
-                            combined[n] = [...(combined[n] || []), ...processedHtoi[n]];
-                        });
-
-                        setItems(itemArray);
-                        setMergedDrops(combined);
-                        setLoading(false);
-                    } catch (err) {
-                        setLoading(false);
-                    }
-                };
-                initData();
-            }, []);
-
-            const filteredItems = useMemo(() => {
-                return items.filter(i => {
-                    const matchName = i.name.toLowerCase().includes(search.toLowerCase());
-                    const matchTier = filters.tier === "All" || i.tier === filters.tier;
-                    const hasData = mergedDrops[i.name]?.length > 0;
-                    const matchLoc = !filters.hasLoc || hasData;
-                    return matchName && matchTier && matchLoc;
-                });
-            }, [items, mergedDrops, search, filters]);
-
-            if (loading) return (
-                <div className="min-h-screen flex items-center justify-center bg-[#05070a]">
-                    <div className="flex flex-col items-center gap-4">
-                        <div className="loader"></div>
-                        <span className="text-[10px] font-bold tracking-[0.4em] text-slate-500 uppercase">Synchronizing Grids</span>
-                    </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filtered.slice(0, 100).map((item, idx) => (
+            <div key={idx} className={`bg-[#0f1218] border border-[#1e2530] rounded-xl p-5 hover:border-blue-500/50 transition-all group border-l-4 ${item.tier === 'Mythic' ? 'border-l-purple-500' : 'border-l-slate-800'}`}>
+              <div className="mb-5 flex justify-between items-start">
+                <div>
+                  <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors">{item.name}</h3>
+                  <p className="text-[9px] font-black text-slate-600 uppercase mt-1 tracking-widest">{item.tier} {item.type}</p>
                 </div>
-            );
+                <span className="text-[10px] bg-[#05070a] px-2 py-0.5 rounded text-slate-500 font-mono">L{item.level}</span>
+              </div>
 
-            return (
-                <div className="flex flex-col min-h-screen">
-                    {/* FIXED TOP NAV */}
-                    <nav className="sticky top-0 z-50 bg-[#0f1218] border-b border-[#1e2530] px-6 py-4">
-                        <div className="max-w-[1600px] mx-auto flex flex-col lg:flex-row items-center gap-6">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-blue-600 flex items-center justify-center rounded-lg shadow-lg shadow-blue-900/20">
-                                    <i className="fas fa-crosshairs text-white"></i>
-                                </div>
-                                <div>
-                                    <h1 className="text-xl font-bold tracking-tight leading-none text-white">WYNN<span className="text-blue-500">FINDER</span></h1>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase mt-1 tracking-tighter">Database Protocol v2.4</p>
-                                </div>
-                            </div>
-
-                            <div className="flex-1 w-full flex flex-col md:flex-row gap-3">
-                                <div className="relative flex-1">
-                                    <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 text-sm"></i>
-                                    <input 
-                                        className="w-full bg-[#05070a] border border-[#1e2530] text-slate-200 rounded-lg py-3 pl-12 pr-4 outline-none focus:border-blue-500 transition-colors text-sm"
-                                        placeholder="Enter item name..."
-                                        value={search}
-                                        onChange={e => setSearch(e.target.value)}
-                                    />
-                                </div>
-                                <select 
-                                    className="custom-select bg-[#05070a] border border-[#1e2530] text-slate-300 rounded-lg px-4 py-3 outline-none text-xs font-bold w-full md:w-48"
-                                    onChange={e => setFilters({...filters, tier: e.target.value})}
-                                >
-                                    <option value="All">All Tiers</option>
-                                    {["Mythic", "Fabled", "Legendary", "Rare", "Unique", "Set"].map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                                <button 
-                                    onClick={() => setFilters({...filters, hasLoc: !filters.hasLoc})}
-                                    className={`px-6 py-3 rounded-lg font-bold text-xs uppercase tracking-widest transition-all ${filters.hasLoc ? 'bg-blue-600 text-white' : 'bg-[#1e2530] text-slate-500 hover:text-slate-300'}`}
-                                >
-                                    <i className="fas fa-map-marker-alt mr-2"></i> Locations
-                                </button>
-                            </div>
-                        </div>
-                    </nav>
-
-                    {/* MAIN CONTENT */}
-                    <main className="flex-1 p-6 lg:p-10 max-w-[1600px] mx-auto w-full">
-                        <div className="flex justify-between items-center mb-8 border-b border-[#1e2530] pb-4">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                                Displaying {filteredItems.length.toLocaleString()} matches
-                            </span>
-                            <div className="flex gap-4">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase">Live API</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {filteredItems.slice(0, 100).map((item, idx) => (
-                                <ItemCard key={idx} item={item} drops={mergedDrops[item.name]} />
-                            ))}
-                        </div>
-
-                        {filteredItems.length === 0 && (
-                            <div className="py-32 flex flex-col items-center justify-center border border-dashed border-[#1e2530] rounded-2xl">
-                                <i className="fas fa-database text-4xl text-slate-800 mb-4"></i>
-                                <p className="text-slate-600 font-bold uppercase text-xs tracking-[0.3em]">No registry entries found</p>
-                            </div>
-                        )}
-                    </main>
-                </div>
-            );
-        };
-
-        const ItemCard = ({ item, drops }) => {
-            return (
-                <div className={`item-card rounded-xl p-5 flex flex-col tier-${item.tier.replace(' ', '')}`}>
-                    <div className="mb-6">
-                        <div className="flex justify-between items-start">
-                            <h3 className="text-md font-bold text-white tracking-tight">{item.name}</h3>
-                            <span className="mono text-[10px] text-slate-500 bg-[#05070a] px-2 py-0.5 rounded">L{item.level}</span>
-                        </div>
-                        <div className="flex gap-2 mt-2">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                                {item.tier} {item.type}
-                            </span>
-                        </div>
+              <div className="space-y-2">
+                {mergedDrops[item.name] ? mergedDrops[item.name].map((d, i) => (
+                  <div key={i} className="bg-[#05070a] border border-[#1e2530] p-3 rounded-lg">
+                    <div className="text-[10px] font-black text-blue-500 uppercase flex items-center gap-2 mb-1">
+                      <div className="w-1 h-1 rounded-full bg-blue-500"></div> {d.name || d.type}
                     </div>
+                    {d.location && <p className="text-[10px] text-slate-500 mb-2 leading-tight">{d.location}</p>}
+                    {d.coords && (
+                      <div className="flex gap-1.5">
+                        <span className="text-[9px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded font-mono">X:{d.coords.x}</span>
+                        <span className="text-[9px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-0.5 rounded font-mono">Z:{d.coords.z}</span>
+                      </div>
+                    )}
+                  </div>
+                )) : (
+                  <div className="py-4 text-center opacity-20"><span className="text-[9px] font-bold uppercase tracking-widest">Global Entry</span></div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
 
-                    <div className="space-y-2 mt-auto">
-                        {drops ? drops.map((d, i) => (
-                            <div key={i} className="bg-[#05070a] border border-[#1e2530] rounded-lg p-3">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <i className={`fas fa-circle text-[6px] ${d.type === 'specialdrop' ? 'text-red-500' : 'text-blue-500'}`}></i>
-                                    <span className="text-[11px] font-bold text-slate-300 uppercase">{d.name || d.type}</span>
-                                </div>
-                                {d.location && (
-                                    <div className="text-[10px] text-slate-500 flex items-start gap-2 mb-2">
-                                        <i className="fas fa-map-pin text-slate-700 mt-0.5"></i>
-                                        <span>{d.location}</span>
-                                    </div>
-                                )}
-                                {d.coords && (
-                                    <div className="flex gap-2">
-                                        <div className="mono text-[9px] bg-emerald-500/10 text-emerald-500 px-2 py-1 rounded border border-emerald-500/20">
-                                            X:{d.coords.x}
-                                        </div>
-                                        <div className="mono text-[9px] bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded border border-emerald-500/20">
-                                            Z:{d.coords.z}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )) : (
-                            <div className="py-4 text-center">
-                                <span className="text-[9px] font-bold text-slate-800 uppercase tracking-widest">Global Drop Only</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        };
+        {filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-40 border-2 border-dashed border-[#1e2530] rounded-3xl">
+            <AlertCircle className="w-10 h-10 text-slate-800 mb-4" />
+            <p className="text-slate-600 font-bold uppercase tracking-widest text-xs">Sector Search Returned Zero Data</p>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+export default App;
